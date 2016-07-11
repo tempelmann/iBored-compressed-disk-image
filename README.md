@@ -8,7 +8,7 @@ This project describes the compressed image file format and includes C code to d
 
 **Note:** All values are in little-endian format.
 
-Current version: 1
+Current version: 2
 
 The file extension should be: .iboredimg
 
@@ -32,8 +32,8 @@ Offset $00-$57: File Identifier
 	iBored compressed disk image<CR><LF>
 	http://github.com/tempelmann/iBored-compressed-disk-image<CR><LF><NUL>
 
-* Offset $5A: (uint8) Written By Version (=1)
-* Offset $5B: (uint8) Readable By Version (=1)
+* Offset $5A: (uint8) Written By Version (=2)
+* Offset $5B: (uint8) Readable By Version (1 for zlib, 2 for RLE compression)
 * Offset $5C: (uint8) Compression Method (see below)
 * Offset $5D: Reserved (=0), ignored by reader
 * Offset $5E-$5F: (uint16) Header Size (=256)
@@ -59,24 +59,29 @@ The compressed chunks are stored inside this file anywhere past the header and i
 
 Value 1: Every chunk is compressed using using [libz](http://libz.net/) "deflate" (windowBits=15). The data includes the 2-byte header and 4-byte Adler checksum.
 
-Value 2: Every chunk is "Run Length" compressed.
+Value 2: Every chunk is "Run Length" (RLE) compressed.
 
 ###Run Length compression
+
+This is an [RLE](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
 
 ####Header
 
 * Offset $00-$03: $00 $52 $4C $45
-* Offset $04-$07: (uint32) Uncompressed data length (equals Chunk Size)
-* Offset $08-$0F: Reserved (=0), ignored by reader
+* Offset $04-$07: (uint32) Total length of this compressed chunk
+* Offset $08-$0B: (uint32) Uncompressed data length (equals Chunk Size)
+* Offset $0C-$0F: Reserved (=0), ignored by reader
 * Offset $10-...: Segments
 
 ####Segment
 
 * Offset $00-$03: $00 $52 $4C $53
-* Offset $04-$07: (uint32) Segment Size (rounded up to 4 or 8 byte boundaries)
-* Offset $08-$0B: (uint32) Uncompressed Pattern length
-* Offset $0C-$0F: (uint32) Length of Pattern
+* Offset $04-$07: (uint32) Segment length (rounded up to 4 or 8 byte boundaries)
+* Offset $08-$0B: (uint32) Output pattern length
+* Offset $0C-$0F: (uint32) Length of pattern that follows
 * Offset $10-...: Pattern
+
+If a chunk can not be RLE-compressed at all, it'll be 32 bytes more in length than the original data.
 
 ###Segments Table
 
