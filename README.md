@@ -8,7 +8,7 @@ This project describes the compressed image file format and includes C code to d
 
 **Note:** All values are in little-endian format.
 
-Current version: 1
+Current version: 2
 
 The file extension should be: .iboredimg
 
@@ -27,12 +27,13 @@ The file format consists of several sections:
 
 Offset $00-$57: File Identifier
 
-	69 42 6F 72 65 64 20 63 6F 6D 70 72 65 73 73 65	64 20 64 69 73 6B 20 69 6D 61 67 65 0D 0A 68 74	74 70 3A 2F 2F 67 69 74 68 75 62 2E 63 6F 6D 2F	74 65 6D 70 65 6C 6D 61 6E 6E 2F 69 42 6F 72 65	64 2D 63 6F 6D 70 72 65 73 73 65 64 2D 64 69 73	6B 2D 69 6D 61 67 65 0D 0A 00 
+	69 42 6F 72 65 64 20 63 6F 6D 70 72 65 73 73 65	64 20 64 69 73 6B 20 69 6D 61 67 65 0D 68 74 74	70 3A 2F 2F 67 69 74 68 75 62 2E 63 6F 6D 2F 74	65 6D 70 65 6C 6D 61 6E 6E 2F 69 42 6F 72 65 64	2D 63 6F 6D 70 72 65 73 73 65 64 2D 64 69 73 6B	2D 69 6D 61 67 65 0D 00 
 The ASCII representation is:
-	iBored compressed disk image<CR><LF>
-	http://github.com/tempelmann/iBored-compressed-disk-image<CR><LF><NUL>
+	iBored compressed disk image<CR>
+	http://github.com/tempelmann/iBored-compressed-disk-image<CR><NUL>
 
-* Offset $5A: (uint8) Written By Version (=1, ignored by reader)
+* Offset $58-$59: Reserved (=0), ignored by reader
+* Offset $5A: (uint8) Written By Version (ignored by reader)
 * Offset $5B: (uint8) Readable By Version (reader must check this)
 * Offset $5C: (uint8) Compression Method (see below)
 * Offset $5D: Reserved (=0), ignored by reader
@@ -54,6 +55,8 @@ Optional. JSON formatted non-critical information text, e.g. about the source di
 A Chunk is a segment from the original disk image, with length of *Chunk Size*, starting at the offset of a whole multiple of *Chunk Size*. As the disk image's size is not necessarily a multiple of *Chunk Size*, the last chunk may be shorter.
 
 The compressed chunks are stored inside this file anywhere past the header and in any order.
+
+Starting with version 2, each compressed chunk starts with a uint32 value specifying the size of the compressed chunk data that follows. In version 1, this value is missing and the compressed data starts right away.
 
 ###Compression Method
 
