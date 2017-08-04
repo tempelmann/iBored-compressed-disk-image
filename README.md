@@ -4,6 +4,13 @@
 
 This project describes the compressed image file format and includes C code to decompress it.
 
+##Downloads
+
+[The original (current) version of this file](http://apps.tempel.org/iBored/iBoredImg.html)
+
+[Sample code](http://apps.tempel.org/iBored/iBoredImg.zip)
+
+
 ##Format specification
 
 **Note:** All values are in little-endian format.
