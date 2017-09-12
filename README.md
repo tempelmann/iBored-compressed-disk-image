@@ -1,17 +1,17 @@
-#iBored compressed image format
+# iBored compressed image format
 
 [iBored](http://apps.tempel.org/iBored/) is a disk sector editor for Mac OS X, Windows and Linux.
 
 This project describes the compressed image file format and includes C code to decompress it.
 
-##Downloads
+## Downloads
 
 [The original (current) version of this file](http://apps.tempel.org/iBored/iBoredImg.html)
 
 [Sample code](http://apps.tempel.org/iBored/iBoredImg.zip)
 
 
-##Format specification
+## Format specification
 
 **Note:** All values are in little-endian format.
 
@@ -28,7 +28,7 @@ The file format consists of several sections:
 3. Table with file offsets for each segment (*Segments Table*).
 4. *Disk Information* (optional).
 
-###File Header section
+### File Header section
 
 **Note:** Values starting with "$" mean hex values.
 
@@ -53,11 +53,11 @@ Offset $00-$57: File Identifier
 * Offset $80-$87: (uint64) Offset To Segments Table
 * Offset $88-$FF: Unused (=0), ignored by reader
 
-###Disk Information
+### Disk Information
 
 Optional. JSON formatted non-critical information text, e.g. about the source disk.
 
-###Chunks
+### Chunks
 
 A Chunk is a segment from the original disk image, with length of *Chunk Size*, starting at the offset of a whole multiple of *Chunk Size*. As the disk image's size is not necessarily a multiple of *Chunk Size*, the last chunk may be shorter.
 
@@ -65,17 +65,17 @@ The compressed chunks are stored inside this file anywhere past the header and i
 
 Starting with version 2, each compressed chunk starts with a uint32 value specifying the size of the compressed chunk data that follows. In version 1, this value is missing and the compressed data starts right away.
 
-###Compression Method
+### Compression Method
 
 Value 1: Every chunk is compressed using using [zlib](http://zlib.net/) "deflate" (windowBits=15). The data includes the 2-byte header and 4-byte Adler checksum.
 
 Value 2: Every chunk is "Run Length" (RLE) compressed.
 
-###Run Length compression
+### Run Length compression
 
 This is an [RLE](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
 
-####Header
+#### Header
 
 * Offset $00-$03: $00 $52 $4C $45
 * Offset $04-$07: (int32) Total length of this compressed chunk
@@ -83,7 +83,7 @@ This is an [RLE](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
 * Offset $0C-$0F: Reserved (=0), ignored by reader
 * Offset $10-...: Segments
 
-####Segment
+#### Segment
 
 * Offset $00-$03: $00 $52 $4C $53
 * Offset $04-$07: (int32) Segment length (rounded up to 4 or 8 byte boundaries)
@@ -93,7 +93,7 @@ This is an [RLE](https://en.wikipedia.org/wiki/Run-length_encoding) compression.
 
 If a chunk can not be RLE-compressed at all, it'll be 32 bytes more in length than the original data.
 
-###Segments Table
+### Segments Table
 
 This is a simple array of uint64 values, each specifying the file offset in this file to a compressed chunk. The number of array elements equals the formula:
 
