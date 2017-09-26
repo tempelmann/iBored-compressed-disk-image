@@ -288,7 +288,7 @@ static boolean decodeImg (FileHeader *header, FILE *infile, FILE *outfile)
 			return false;
 		}
 		
-		size_t inSize = 0;
+		uint64_t inSize = 0;
 		if (chunksHaveLengthPrefix) {
 			// fetch the compressed chunk's size
 			n = fread (&inSize, 1, sizeof(inSize), infile);

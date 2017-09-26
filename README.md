@@ -63,7 +63,7 @@ A Chunk is a segment from the original disk image, with length of *Chunk Size*, 
 
 The compressed chunks are stored inside this file anywhere past the header and in any order.
 
-Starting with version 2, each compressed chunk starts with a uint32 value specifying the size of the compressed chunk data that follows. In version 1, this value is missing and the compressed data starts right away.
+Starting with version 2, each compressed chunk starts with a uint64 value specifying the size of the compressed chunk data that follows. In version 1, this value is missing and the compressed data starts right away.
 
 ### Compression Method
 
