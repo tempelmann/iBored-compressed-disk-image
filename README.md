@@ -1,5 +1,7 @@
 # iBored compressed image format
 
+Latest update: 17 Jan 2026
+
 [iBored](http://apps.tempel.org/iBored/) is a disk sector editor for Mac OS X, Windows and Linux.
 
 This project describes the compressed image file format and includes C code to decompress it.
@@ -15,8 +17,6 @@ This project describes the compressed image file format and includes C code to d
 
 **Note:** All values are in little-endian format.
 
-Current version: 2
-
 The file extension should be: .iboredimg
 
 The file shall be considered read-only after creation, because the format currently does not provide an efficient way of updating data inside the image as there's not enough information in it to manage reallocation of overwritten data. Therefore, this is primarily a format for archiving.
@@ -28,15 +28,25 @@ The file format consists of several sections:
 3. Table with file offsets for each segment (*Segments Table*).
 4. *Disk Information* (optional).
 
+Current format version: 2
+
 ### File Header section
 
 **Note:** Values starting with "$" mean hex values.
 
 Offset $00-$57: File Identifier
 
-	69 42 6F 72 65 64 20 63 6F 6D 70 72 65 73 73 65	64 20 64 69 73 6B 20 69 6D 61 67 65 0D 68 74 74	70 3A 2F 2F 67 69 74 68 75 62 2E 63 6F 6D 2F 74	65 6D 70 65 6C 6D 61 6E 6E 2F 69 42 6F 72 65 64	2D 63 6F 6D 70 72 65 73 73 65 64 2D 64 69 73 6B	2D 69 6D 61 67 65 0D 00 
-The ASCII representation is:
-	iBored compressed disk image<CR>
+	69 42 6F 72 65 64 20 63 6F 6D 70 72 65 73 73 65
+	64 20 64 69 73 6B 20 69 6D 61 67 65 0D 68 74 74
+	70 3A 2F 2F 67 69 74 68 75 62 2E 63 6F 6D 2F 74
+	65 6D 70 65 6C 6D 61 6E 6E 2F 69 42 6F 72 65 64
+	2D 63 6F 6D 70 72 65 73 73 65 64 2D 64 69 73 6B
+	2D 69 6D 61 67 65 0D 00 
+
+The ASCII representation is:
+
+	iBored compressed disk image<CR>
+
 	http://github.com/tempelmann/iBored-compressed-disk-image<CR><NUL>
 
 * Offset $58-$59: Reserved (=0), ignored by reader
@@ -51,6 +61,8 @@ Offset $00-$57: File Identifier
 * Offset $78-$7B: (uint32) Length Of Disk Information
 * Offset $7C-$7F: (uint32) Physical Block Size
 * Offset $80-$87: (uint64) Offset To Segments Table
+* Offset $88-$8F: (uint64) Block Mapping Table Offset
+* Offset $90-$97: (uint64) Block Mapping Table Size
 * Offset $88-$FF: Unused (=0), ignored by reader
 
 ### Disk Information
@@ -67,9 +79,9 @@ Starting with version 2, each compressed chunk starts with a uint64 value specif
 
 ### Compression Method
 
-Value 1: Every chunk is compressed using using [zlib](http://zlib.net/) "deflate" (windowBits=15). The data includes the 2-byte header and 4-byte Adler checksum.
-
-Value 2: Every chunk is "Run Length" (RLE) compressed.
+- 1: Every chunk is compressed using using [zlib](http://zlib.net/) "deflate" (windowBits=15). The data includes the 2-byte header and 4-byte Adler checksum.
+- 2: Every chunk is "Run Length" (RLE) compressed.
+- 3: There are no chunks. Instead, there's a Block Mapping table that is an array of uint64 pairs representing physical block numbers and their offset in the file. Blocks whose number is not present in the mapping are to be considered empty.
 
 ### Run Length compression
 

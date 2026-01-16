@@ -19,12 +19,12 @@
 #include <assert.h>
 
 
-#define VERSION "1.0"
+#define VERSION "1.1"
 
-typedef int boolean;
+typedef char boolean;
 #define false 0
 #define true 1
-
+#define not !
 
 /*
  * RLE decompression
@@ -179,7 +179,9 @@ typedef struct {
 	uint32_t	diskInfoSize;
 	uint32_t	physBlockSize;
 	uint64_t	segmentsTableOffset;
-	uint8_t		reserved2[0x78];
+	uint64_t	blockMapOffset;
+	uint64_t	blockMapSize;
+	uint8_t		reserved2[0x68];
 } FileHeader;
 
 static void showImgInfo (FileHeader *header, FILE *infile)
@@ -195,6 +197,8 @@ static void showImgInfo (FileHeader *header, FILE *infile)
 		s = "zlib";
 	} else if (header->compressionMethod == 2) {
 		s = "RLE";
+	} else if (header->compressionMethod == 3) {
+		s = "blockMap";
 	} else {
 		s = "unknown";
 	}
@@ -222,6 +226,14 @@ static void showImgInfo (FileHeader *header, FILE *infile)
 	}
 }
 
+int mapCompare (const void *a, const void *b) {
+	uint64_t valA = *(uint64_t*) a;
+	uint64_t valB = *(uint64_t*) b;
+	if (valA > valB) return 1;
+	if (valA < valB) return -1;
+	return 0;
+}
+
 static boolean decodeImg (FileHeader *header, FILE *infile, FILE *outfile)
 {
 	if (header->versionReadableBy > 2) {
@@ -231,117 +243,215 @@ static boolean decodeImg (FileHeader *header, FILE *infile, FILE *outfile)
 	
 	boolean chunksHaveLengthPrefix = header->versionReadableBy >= 2;
 	
-	if (header->compressionMethod != 1 && header->compressionMethod != 2) {
+	if (header->compressionMethod < 1 || header->compressionMethod > 3) {
 		fprintf (stderr, "Unsupported compression method (%d)\n", (int)header->compressionMethod);
 		return false;
 	}
 	
-	// Load the segments offsets table
-	size_t segOfsSize = ((header->uncompressedSize + header->chunkSize - 1) / header->chunkSize) * sizeof(uint64_t);
-	uint64_t *segmentOffsets = malloc (segOfsSize);
-	if (!segmentOffsets) {
-		fprintf (stderr, "Can't alloc segments offsets buffer\n");
-		return false;
-	}
-	off_t offs = header->segmentsTableOffset;
-	if (fsetpos (infile, &offs) != 0) {
-		fprintf (stderr, "Seek error");
-		return false;
-	}
-	size_t n = fread (segmentOffsets, 1, segOfsSize, infile);
-	if (n != segOfsSize) {
-		fprintf (stderr, "Can't read the segments offsets table\n");
-		return false;
-	}
+	if (header->compressionMethod == 3) {
+		
+		uint64_t *blockMap = NULL;
 	
-	// Prepare input buffer (RLE only)
-	size_t inBufSize = header->chunkSize + 32;	// worst case for RLE
-	void *inBuf = NULL;
-	if (header->compressionMethod == 2) {
-		inBuf = malloc(inBufSize);
-		if (!inBuf) {
-			fprintf (stderr, "Can't alloc input chunk buffer\n");
+		// Load the block mapping table
+		fpos_t mapOfs = header->blockMapOffset;
+		size_t mapSize = header->blockMapSize;
+		if (mapSize < 16 || mapOfs < sizeof(header)) {
+			fprintf (stderr, "Invalid block map\n");
 			return false;
 		}
-	}
-
-	// Prepare output buffer
-	void *outBuf = malloc(header->chunkSize);
-	if (!outBuf) {
-		fprintf (stderr, "Can't alloc output chunk buffer\n");
-		return false;
-	}
-
-	// Read and decompress every chunk
-	uint64_t remainBytes = header->uncompressedSize;
-	long chunkNum = 0;
-	while (remainBytes > 0) {
-
-		// determine the chunk's output size
-		size_t writeAmount = remainBytes;
-		if (writeAmount > header->chunkSize) writeAmount = header->chunkSize;
-		
-		// seek to compressed input chunk
-		off_t offs = segmentOffsets[chunkNum];
-		if (fsetpos (infile, &offs) != 0) {
-			fprintf (stderr, "Seek error (chunk #%ld)\n", chunkNum);
+		blockMap = malloc(mapSize);
+		if (fsetpos (infile, &mapOfs) != 0) {
+			fprintf (stderr, "Seek error");
+			return false;
+		}
+		size_t n = fread (blockMap, 1, mapSize, infile);
+		if (n != mapSize) {
+			fprintf (stderr, "Can't read the block mapping table\n");
 			return false;
 		}
 		
-		uint64_t inSize = 0;
-		if (chunksHaveLengthPrefix) {
-			// fetch the compressed chunk's size
-			n = fread (&inSize, 1, sizeof(inSize), infile);
-			if (n != sizeof(inSize)) {
-				fprintf (stderr, "Can't read header of chunk #%ld\n", chunkNum);
-				return false;
-			}
-		}
+		// Sort the pairs of block number and file offset by the block numbers
+		size_t mapEntrySize = 2 * sizeof(uint64_t);
+		uint64_t mapRemain = mapSize / mapEntrySize;
+		qsort (blockMap, mapRemain, mapEntrySize, mapCompare);
 		
-		// uncompress the chunk into outBuf
-		if (header->compressionMethod == 1) {
-			// zlib (deflate)
-			if (!zlib_decompress (infile, inSize, outBuf, writeAmount)) {
-				fprintf (stderr, "Can't inflate chunk #%ld\n", chunkNum);
-				return false;
-			}
-		} else {
-			// RLE
-			size_t readAmount;
-			if (inSize) {
-				// Version 2: we know the overall size already
-				n = 0;
-				readAmount = inSize;
+		size_t emptyDataSize = 16777216;	// 16 MB
+		void *emptyData = calloc(1, emptyDataSize);
+		
+		uint64_t blkSize = header->physBlockSize;
+
+		void *blkBuf = malloc(blkSize);
+		
+		uint64_t mapIdx = 0;
+		uint64_t remainBytes = header->uncompressedSize;
+		uint64_t currentBlkNum = 0;
+		while (remainBytes > 0) {
+			uint64_t emptySpace;
+			fpos_t nextBlkOfs;
+			if (mapRemain > 0) {
+				mapRemain -= 1;
+				uint64_t nextBlkNum = blockMap[mapIdx++];
+				nextBlkOfs = blockMap[mapIdx++];
+				if (nextBlkNum < currentBlkNum) {
+					fprintf (stderr, "Error in block mapping table\n");
+					return false;
+				}
+				uint64_t emptyBlks = nextBlkNum - currentBlkNum;
+				emptySpace = blkSize * emptyBlks;
+				currentBlkNum = nextBlkNum;
 			} else {
-				// Version 1: read the RLE header first to determine the overall size
-				n = fread (inBuf, 1, sizeof(RLEHeader), infile);
-				if (n != sizeof(RLEHeader)) {
+				emptySpace = remainBytes;
+			}
+
+			// write empty space
+			while (emptySpace > 0) {
+				uint64_t writeAmount = emptySpace;
+				if (writeAmount > emptyDataSize) writeAmount = emptyDataSize;
+				if (fwrite (emptyData, 1, writeAmount, outfile) != writeAmount) {
+					fprintf (stderr, "Write failed\n");
+					return false;
+				}
+				emptySpace -= writeAmount;
+				remainBytes -= writeAmount;
+			}
+			if (remainBytes > 0) {
+				// seek to mapped block
+				if (fsetpos (infile, &nextBlkOfs) != 0) {
+					fprintf (stderr, "Seek error (input)\n");
+					return false;
+				}
+				size_t n = fread (blkBuf, 1, blkSize, infile);
+				if (n != blkSize) {
+					fprintf (stderr, "Can't read block #%lld\n", currentBlkNum);
+					return false;
+				}
+				// write outBuf to file
+				if (fwrite (blkBuf, 1, blkSize, outfile) != blkSize) {
+					fprintf (stderr, "Write failed\n");
+					return false;
+				}
+				remainBytes -= blkSize;
+				currentBlkNum += 1;
+			}
+		}
+		
+		free (blkBuf);
+		free (emptyData);
+		free (blockMap);
+		
+	} else {
+
+		uint64_t *segmentOffsets = NULL;
+		void *inBuf = NULL;
+	
+		// Load the segments offsets table
+		size_t segOfsSize = ((header->uncompressedSize + header->chunkSize - 1) / header->chunkSize) * sizeof(uint64_t);
+		segmentOffsets = malloc (segOfsSize);
+		if (!segmentOffsets) {
+			fprintf (stderr, "Can't alloc segments offsets buffer\n");
+			return false;
+		}
+		off_t offs = header->segmentsTableOffset;
+		if (fsetpos (infile, &offs) != 0) {
+			fprintf (stderr, "Seek error");
+			return false;
+		}
+		size_t n = fread (segmentOffsets, 1, segOfsSize, infile);
+		if (n != segOfsSize) {
+			fprintf (stderr, "Can't read the segments offsets table\n");
+			return false;
+		}
+		
+		// Prepare input buffer (RLE only)
+		size_t inBufSize = header->chunkSize + 32;	// worst case for RLE
+		if (header->compressionMethod == 2) {
+			inBuf = malloc(inBufSize);
+			if (!inBuf) {
+				fprintf (stderr, "Can't alloc input chunk buffer\n");
+				return false;
+			}
+		}
+	
+		// Prepare output buffer
+		void *outBuf = malloc(header->chunkSize);
+		if (!outBuf) {
+			fprintf (stderr, "Can't alloc output chunk buffer\n");
+			return false;
+		}
+
+		// Read and decompress every chunk
+		uint64_t remainBytes = header->uncompressedSize;
+		long chunkNum = 0;
+		while (remainBytes > 0) {
+
+			// determine the chunk's output size
+			size_t writeAmount = remainBytes;
+			if (writeAmount > header->chunkSize) writeAmount = header->chunkSize;
+			
+			// seek to compressed input chunk
+			off_t offs = segmentOffsets[chunkNum];
+			if (fsetpos (infile, &offs) != 0) {
+				fprintf (stderr, "Seek error (chunk #%ld)\n", chunkNum);
+				return false;
+			}
+			
+			uint64_t inSize = 0;
+			if (chunksHaveLengthPrefix) {
+				// fetch the compressed chunk's size
+				size_t n = fread (&inSize, 1, sizeof(inSize), infile);
+				if (n != sizeof(inSize)) {
 					fprintf (stderr, "Can't read header of chunk #%ld\n", chunkNum);
 					return false;
 				}
-				readAmount = ((RLEHeader*)inBuf)->totalLength - n;
 			}
-			n = fread (inBuf+n, 1, readAmount, infile);
-			if (n != readAmount) {
-				fprintf (stderr, "Can't read chunk #%ld\n", chunkNum);
-				return false;
+			
+			// uncompress the chunk into outBuf
+			if (header->compressionMethod == 1) {
+				// zlib (deflate)
+				if (!zlib_decompress (infile, inSize, outBuf, writeAmount)) {
+					fprintf (stderr, "Can't inflate chunk #%ld\n", chunkNum);
+					return false;
+				}
+			} else {
+				// RLE
+				size_t n;
+				size_t readAmount;
+				if (inSize) {
+					// Version 2: we know the overall size already
+					n = 0;
+					readAmount = inSize;
+				} else {
+					// Version 1: read the RLE header first to determine the overall size
+					n = fread (inBuf, 1, sizeof(RLEHeader), infile);
+					if (n != sizeof(RLEHeader)) {
+						fprintf (stderr, "Can't read header of chunk #%ld\n", chunkNum);
+						return false;
+					}
+					readAmount = ((RLEHeader*)inBuf)->totalLength - n;
+				}
+				n = fread (inBuf+n, 1, readAmount, infile);
+				if (n != readAmount) {
+					fprintf (stderr, "Can't read chunk #%ld\n", chunkNum);
+					return false;
+				}
+				if (!RLEdecompress(inBuf, outBuf)) {
+					fprintf (stderr, "Can't decompress chunk #%ld", chunkNum);
+					return false;
+				}
 			}
-			if (!RLEdecompress(inBuf, outBuf)) {
-				fprintf (stderr, "Can't decompress chunk #%ld", chunkNum);
-				return false;
-			}
-		}
 
-		// write outBuf to file
-		if (fwrite (outBuf, 1, writeAmount, outfile) != writeAmount) {
-			fprintf (stderr, "Write failed\n");
-			return false;
+			// write outBuf to file
+			if (fwrite (outBuf, 1, writeAmount, outfile) != writeAmount) {
+				fprintf (stderr, "Write failed\n");
+				return false;
+			}
+			
+			remainBytes -= writeAmount;
+			chunkNum += 1;
 		}
-		
-		remainBytes -= writeAmount;
-		chunkNum += 1;
-	}
 	
+	}
+
 	return true;
 }
 

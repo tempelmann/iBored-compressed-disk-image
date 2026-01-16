@@ -73,12 +73,16 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "/Temp/out.iboredimg"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "zlib-v1.iboredimg"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "zlib-v2.iboredimg"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "rle-v1.iboredimg"
@@ -93,7 +97,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "out.jpg"
+            argument = "/Temp/out.dmg"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
